@@ -1,0 +1,76 @@
+import whisper
+import torch
+from transformers import pipeline
+import sounddevice as sd
+import soundfile as sf
+import re
+
+MODEL_NAME = "finiteautomata/beto-emotion-analysis"
+AUDIO_FILENAME = "grabacion.wav"
+DURATION = 7  # segundos
+
+# Grabar el audio
+def grabar_audio(filename, duration=5, samplerate=16000):
+    print("🎙️ Grabando... Habla ahora")
+    audio = sd.rec(int(samplerate * duration), samplerate=samplerate, channels=1)
+    sd.wait()
+    sf.write(filename, audio, samplerate)
+    print("✅ Grabación guardada\n")
+
+# Transcribir audio con Whisper
+def transcribir_audio(modelo, filename):
+    try:
+        result = modelo.transcribe(filename, language="es")
+        texto = result["text"].strip()
+        print(f" Texto detectado: {texto}\n")
+        return texto
+    except Exception as e:
+        print(" Error al transcribir:", e)
+        return ""
+
+def limpiar_texto(texto):
+    texto = texto.strip().lower()
+    texto = re.sub(r"[¿?¡!]", "", texto) 
+    texto = re.sub(r"\s+", " ", texto)  
+    return texto
+
+def detectar_emocion(texto, clasificador):
+    try:
+        resultado = clasificador(texto, top_k=3)
+
+        if isinstance(resultado, list):
+            if isinstance(resultado[0], list):
+                emociones = resultado[0]
+            else:
+                emociones = resultado
+        else:
+            print(" Resultado inesperado del modelo:", resultado)
+            return
+
+        emocion_principal = max(emociones, key=lambda x: x["score"])
+
+        print("🔍 Emociones detectadas:")
+        for emo in emociones:
+            print(f"  - {emo['label']} (confianza: {emo['score']:.2f})")
+
+        print(f"\n❤️ Emoción principal: {emocion_principal['label']} (confianza: {emocion_principal['score']:.2f})\n")
+
+    except Exception as e:
+        print(" Error al detectar emoción:", e)
+
+# Programa principal
+if __name__ == "__main__":
+    print("⏳ Cargando modelos...\n")
+    modelo_whisper = whisper.load_model("base")
+    clasificador_emociones = pipeline("text-classification", model=MODEL_NAME)
+
+    print(" Modelos listos\n")
+
+    grabar_audio(AUDIO_FILENAME, DURATION)
+    texto = transcribir_audio(modelo_whisper, AUDIO_FILENAME)
+
+    if texto:
+        texto_limpio = limpiar_texto(texto)
+        detectar_emocion(texto_limpio, clasificador_emociones)
+    else:
+        print(" No se detectó texto en el audio.")
